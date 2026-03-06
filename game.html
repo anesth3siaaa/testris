@@ -267,6 +267,53 @@
     gap: 16px;
   }
 
+  /* ===== PAUSE SCREEN ===== */
+  #pause-screen {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.82);
+    display: none;
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 32px;
+    z-index: 400;
+  }
+  #pause-screen.show { display: flex; }
+  .pause-title {
+    font-size: 48px;
+    letter-spacing: 14px;
+    color: var(--cyan);
+    text-shadow: 0 0 24px var(--cyan), 0 0 60px rgba(0,240,255,0.3);
+  }
+  .pause-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+  }
+  .pause-btn {
+    width: 220px;
+    padding: 12px 0;
+    background: transparent;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    letter-spacing: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s, border-color 0.2s;
+  }
+  .pause-btn:first-child {
+    border-color: var(--cyan);
+    color: var(--cyan);
+  }
+  .pause-btn:hover {
+    background: rgba(0,240,255,0.08);
+    border-color: var(--cyan);
+    color: var(--cyan);
+    box-shadow: 0 0 16px rgba(0,240,255,0.3);
+  }
+
   /* ===== RIGHT PANEL ===== */
   #right-panel {
     width: 110px;
@@ -402,6 +449,15 @@
     display: flex; flex-direction: column;
     align-items: center;
     gap: 14px;
+  }
+  #home-highscore {
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  #home-highscore span {
+    color: var(--cyan);
   }
 
   .home-btn {
@@ -794,6 +850,7 @@
   <div class="home-menu">
     <button class="home-btn play-btn" id="home-play-btn">▶ &nbsp;PLAY</button>
     <button class="home-btn" id="home-settings-btn">SETTINGS</button>
+    <div id="home-highscore"></div>
   </div>
 </div>
 
@@ -859,6 +916,7 @@
       <button class="debug-btn" id="dbg-snd-click">UI Click</button>
       <button class="debug-btn" id="dbg-snd-gameover">Game Over</button>
       <button class="debug-btn" id="dbg-snd-tetris">TESTRIS Chord</button>
+      <button class="debug-btn" id="dbg-snd-levelup">Level Up</button>
     </div>
 
     <div class="settings-section-title">🎵 Line Clear Notes</div>
@@ -879,14 +937,6 @@
       <button class="debug-btn" id="dbg-combo-2">Combo ×2</button>
       <button class="debug-btn" id="dbg-combo-4">Combo ×4</button>
       <button class="debug-btn" id="dbg-combo-8">Combo ×8</button>
-    </div>
-
-    <div class="settings-section-title">⚙️ Game State</div>
-    <div class="debug-grid">
-      <button class="debug-btn" id="dbg-set-level">Set Level 10</button>
-      <button class="debug-btn" id="dbg-fill-board">Fill Board</button>
-      <button class="debug-btn" id="dbg-clear-board">Clear Board</button>
-      <button class="debug-btn" id="dbg-force-gameover">Force Game Over</button>
     </div>
 
     <div class="settings-section-title">📋 Info</div>
@@ -978,6 +1028,16 @@
   <div id="gameover-buttons">
     <button id="restart-btn">RESTART</button>
     <button id="quit-btn">QUIT</button>
+  </div>
+</div>
+
+<!-- ===== PAUSE SCREEN ===== -->
+<div id="pause-screen">
+  <div class="pause-title">PAUSED</div>
+  <div class="pause-menu">
+    <button class="pause-btn" id="pause-resume-btn">▶ RESUME</button>
+    <button class="pause-btn" id="pause-restart-btn">↺ RESTART</button>
+    <button class="pause-btn" id="pause-quit-btn">⌂ QUIT TO MENU</button>
   </div>
 </div>
 
@@ -1168,6 +1228,24 @@ const SFX = {
   },
 
   harddrop: () => { playTone(180,'sawtooth',0.1,0.3 * masterVolume); playNoise(0.08,0.2 * masterVolume); },
+  levelup: () => {
+    if (!audioCtx) return;
+    // Bright ascending arpeggio: C E G C5 — quick and punchy
+    const notes = [261.63, 329.63, 392.00, 523.25];
+    notes.forEach((freq, i) => {
+      setTimeout(() => {
+        const osc  = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.18 * masterVolume, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.18);
+      }, i * 80);
+    });
+  },
   gameover: () => {
     [440,330,220,110].forEach((f,i) => setTimeout(()=>playTone(f,'sawtooth',0.4,0.3 * masterVolume), i*120));
   }
@@ -1359,6 +1437,7 @@ function clearLines() {
   // NES Testris level-up rule:
   // First level-up requires: min(startLevel*10+10, max(100, startLevel*10-50)) lines
   // After that, every 10 lines.
+  const prevLevel = G.level;
   const firstThreshold = Math.min(G.startLevel * 10 + 10, Math.max(100, G.startLevel * 10 - 50));
   if (G.lines >= firstThreshold) {
     const linesAfterFirst = G.lines - firstThreshold;
@@ -1366,6 +1445,7 @@ function clearLines() {
   } else {
     G.level = G.startLevel;
   }
+  if (G.level > prevLevel) SFX.levelup();
 
   const pts = LINE_SCORES[count] * G.level;
   G.score += pts;
@@ -1445,7 +1525,7 @@ function clearAllMoveTimers() {
 document.addEventListener('keydown', e => {
   if (listeningBtn) return; // handled by settings listener
   ensureAudio();
-  if (!G.running || G.gameOver) return;
+  if (!G.running || G.gameOver || paused) return;
   const k = e.key === ' ' ? 'Space' : e.key;
   if (G.keys[k]) return;
   G.keys[k] = true;
@@ -1470,7 +1550,10 @@ document.addEventListener('keyup', e => {
   delete keyTimers[k]; delete keyTimers[k+'_int'];
   if (listeningBtn) return; // don't process game logic while rebinding
   if (G.keys) G.keys[k] = false;
+  // Reset softDrop if the released key matches current binding OR no softDrop key is held
   if (k === KEYS.softDrop) G.softDrop = false;
+  // Safety: if no key matching softDrop is currently held, always clear it
+  if (!G.keys || !G.keys[KEYS.softDrop]) G.softDrop = false;
 });
 
 function handleKey(k) {
@@ -1770,7 +1853,11 @@ function triggerGameOver() {
   G.running = false;
   G.gameOver = true;
   SFX.gameover();
-  finalScoreTx.textContent = 'SCORE: ' + G.score.toLocaleString();
+  const isNew = saveHighScore(G.score);
+  finalScoreTx.innerHTML =
+    'SCORE: ' + G.score.toLocaleString() +
+    (isNew ? '<br><span style="color:var(--cyan);font-size:11px;letter-spacing:4px;">✦ NEW HIGH SCORE ✦</span>' : '') +
+    '<br><span style="font-size:10px;color:var(--text-dim);letter-spacing:3px;">BEST: ' + highScore.toLocaleString() + '</span>';
 
   // Final render so board snapshot is current
   render();
@@ -1859,6 +1946,31 @@ let KEYS = {
   hold:     'w'
 };
 
+// Load saved keybinds
+try {
+  const savedKeys = localStorage.getItem('testris_keys');
+  if (savedKeys) Object.assign(KEYS, JSON.parse(savedKeys));
+} catch(e) {}
+
+// High score
+let highScore = 0;
+try {
+  highScore = parseInt(localStorage.getItem('testris_highscore') || '0', 10);
+} catch(e) {}
+
+function saveKeys() {
+  try { localStorage.setItem('testris_keys', JSON.stringify(KEYS)); } catch(e) {}
+}
+
+function saveHighScore(score) {
+  if (score > highScore) {
+    highScore = score;
+    try { localStorage.setItem('testris_highscore', highScore); } catch(e) {}
+    return true; // new high score
+  }
+  return false;
+}
+
 // Volume (0–1)
 let masterVolume = 0.7;
 
@@ -1921,6 +2033,9 @@ function showHome() {
   // hide game
   appEl.style.opacity = '0';
   appEl.style.pointerEvents = 'none';
+  // update high score display
+  const hsEl = document.getElementById('home-highscore');
+  if (hsEl) hsEl.innerHTML = highScore > 0 ? 'BEST: <span>' + highScore.toLocaleString() + '</span>' : '';
 }
 
 function hideHome() {
@@ -2125,6 +2240,7 @@ document.addEventListener('keydown', e => {
   listeningBtn = null;
   listeningAction = null;
   refreshKeybindButtons();
+  saveKeys();
 }, { capture: true });
 
 function formatKey(k) { return k === 'Space' ? 'SPACE' : k.toUpperCase(); }
@@ -2150,6 +2266,56 @@ zoomSlider.addEventListener('input', () => {
   gameZoom = zoomSlider.value / 100;
   zoomVal.textContent = zoomSlider.value + '%';
   applyZoom();
+});
+
+// ===== PAUSE MENU =====
+const pauseScreen = document.getElementById('pause-screen');
+let paused = false;
+
+function openPause() {
+  if (!G.running || G.gameOver) return;
+  paused = true;
+  G.running = false;
+  G.softDrop = false;
+  flushKeys();
+  pauseScreen.classList.add('show');
+}
+
+function closePause() {
+  playClick();
+  paused = false;
+  pauseScreen.classList.remove('show');
+  G.running = true;
+  G.lastTime = performance.now();
+  requestAnimationFrame(loop);
+}
+
+document.getElementById('pause-resume-btn').addEventListener('click', closePause);
+
+document.getElementById('pause-restart-btn').addEventListener('click', () => {
+  playClick();
+  paused = false;
+  pauseScreen.classList.remove('show');
+  showLevelSelect();
+});
+
+document.getElementById('pause-quit-btn').addEventListener('click', () => {
+  playClick();
+  paused = false;
+  G.running = false;
+  pauseScreen.classList.remove('show');
+  showHome();
+});
+
+// Escape key toggles pause during gameplay
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && G.running && !G.gameOver && !listeningBtn) {
+    e.preventDefault();
+    openPause();
+  } else if (e.key === 'Escape' && paused) {
+    e.preventDefault();
+    closePause();
+  }
 });
 
 // ===== DEBUG MENU =====
@@ -2190,6 +2356,7 @@ document.getElementById('dbg-snd-harddrop').addEventListener('click', () => { pl
 document.getElementById('dbg-snd-click').addEventListener('click',    () => { playClick(); });
 document.getElementById('dbg-snd-gameover').addEventListener('click', () => { playClick(); SFX.gameover(); });
 document.getElementById('dbg-snd-tetris').addEventListener('click',   () => { playClick(); SFX.tetris(); });
+document.getElementById('dbg-snd-levelup').addEventListener('click',  () => { playClick(); SFX.levelup(); });
 
 // Line clear note tests
 [1,2,3,4,5,6,7,8].forEach(n => {
@@ -2220,34 +2387,7 @@ document.getElementById('dbg-combo-2').addEventListener('click', () => { playCli
 document.getElementById('dbg-combo-4').addEventListener('click', () => { playClick(); SFX.combo(4); });
 document.getElementById('dbg-combo-8').addEventListener('click', () => { playClick(); SFX.combo(7); });
 
-// Game state tests
-document.getElementById('dbg-set-level').addEventListener('click', () => {
-  playClick();
-  if (!G.running) { alert('Start a game first!'); return; }
-  G.level = 10; G.startLevel = 10;
-  updateUI(); updateDebugInfo();
-});
-document.getElementById('dbg-fill-board').addEventListener('click', () => {
-  playClick();
-  if (!G.running) { alert('Start a game first!'); return; }
-  // Fill bottom 16 rows leaving top 4 clear, with one gap per row so it's not instant clear
-  for (let r = 4; r < ROWS; r++) {
-    G.board[r] = Array(COLS).fill('cyan');
-    G.board[r][r % COLS] = null; // leave one gap
-  }
-  render(); updateDebugInfo();
-});
-document.getElementById('dbg-clear-board').addEventListener('click', () => {
-  playClick();
-  if (!G.running) { alert('Start a game first!'); return; }
-  G.board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-  render(); updateDebugInfo();
-});
-document.getElementById('dbg-force-gameover').addEventListener('click', () => {
-  playClick();
-  if (!G.running) { alert('Start a game first!'); return; }
-  triggerGameOver();
-});
+// Game state tests removed — debug menu only accessible from home screen
 
 // ===== KONAMI CODE + G KEY DEBUG =====
 const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown',
